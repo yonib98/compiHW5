@@ -1,5 +1,6 @@
 #include "types.h"
 #include "hw3_output.hpp"
+#include "bp.hpp"
 #include <string>
 #include <iostream>
 using namespace std;
@@ -348,4 +349,6 @@ void end_program(int yychar, int yyeof, int line_no) {
         exit(0);
     }
     table.pop_scope();
+    CodeBuffer& cb =  CodeBuffer::instance();
+    cb.printCodeBuffer();
 }

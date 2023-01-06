@@ -12,13 +12,16 @@ enum Type{
     _STRING,
     _VOID,
 };
-struct TypeNode {
+struct Expression{
+    std::string place;
+};
+struct TypeNode: public Expression {
     Type type;
     TypeNode* next;
     TypeNode* back;
     TypeNode(Type type): type(type), next(nullptr), back(nullptr) {};
 };
-struct IdNode {
+struct IdNode: public Expression{
     string id;
     IdNode(string id): id(id){};
 };

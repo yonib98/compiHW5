@@ -3,3 +3,8 @@ tests
 makefile
 wet3
 .idea
+parser.tab.hpp
+parser.tab.cpp
+lex.yy.c
+l.txt
+hw5
