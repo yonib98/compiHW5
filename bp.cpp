@@ -21,7 +21,10 @@ string CodeBuffer::genLabel(){
 	emit(label.str());
 	return ret;
 }
-
+string CodeBuffer::freshVar() {
+    static int vars = 0;
+    return "%t" + to_string(vars);
+}
 int CodeBuffer::emit(const string &s){
     buffer.push_back(s);
 	return buffer.size() - 1;
