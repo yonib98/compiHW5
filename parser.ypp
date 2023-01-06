@@ -1,0 +1,156 @@
+%{
+    #include<iostream>
+    #include "hw3_output.hpp"
+    #include "types.h"
+    using namespace std;
+    using namespace output;
+
+    int yylex();
+    void yyerror(char const*);
+    extern int yylineno;
+    extern SymTable table;
+%}
+
+%union{
+    TypeNode* typeNode;
+    IdNode* idNode;
+    NumNode* numNode;
+    NodeParams* nodeParams;
+    FuncCallNode* funcCallNode;
+}
+
+%token <numNode> NUM
+%token VOID
+%token INT
+%token BYTE
+%token B
+%token BOOL
+
+
+%token TRUE
+%token FALSE
+%token RETURN
+
+%token WHILE
+%token BREAK
+%token CONTINUE
+%token SC
+%token COMMA
+%token LBRACE
+%token RBRACE
+%token <idNode> ID
+%token STRING
+%nonassoc IF
+
+%left ASSIGN
+
+%left OR
+%left AND
+
+%left RELOP
+
+%left ADD_MIN
+%left MUL_DIV
+
+%right NOT
+
+%left RPAREN
+%left LPAREN
+
+%nonassoc ELSE
+
+%type <typeNode> RetType
+%type <nodeParams> Formals
+%type <nodeParams> FormalsList
+%type <nodeParams> FormalDecl
+%type <funcCallNode> Call;
+%type <typeNode> ExpList
+%type <typeNode> Type
+%type <typeNode> Exp;
+%type <typeNode> ExpForIf;
+
+%%
+Program: {start_program();} Funcs {end_program(yychar, YYEOF, yylineno);}
+
+
+ Funcs: /*epsilon*/ {}
+		| FuncDecl Funcs {}
+
+
+ FuncDecl: RetType ID LPAREN Formals RPAREN {table.create_func($1, $2, $4, yylineno);} LBRACE Statements RBRACE
+ {table.pop_scope();}
+
+
+ RetType: Type {$$ = $1;}
+		  | VOID {$$ = new TypeNode(_VOID);}
+
+//todo null
+ Formals : /*epsilon*/ {$$ = nullptr;}
+		  | FormalsList {$$ = $1;}
+
+FormalsList : FormalDecl {$$ = $1; }
+			  | FormalDecl COMMA FormalsList { $1->next = $3; $3->back = $1; $$ = $1;}
+
+
+ FormalDecl : Type ID {$$ = new NodeParams($1, $2);}
+
+
+ Statements: Statement {}
+			 | Statements Statement {}
+
+ExpForIf: Exp {table.check_exp_is_bool($1, yylineno); table.push_scope(); $$=$1;}
+AfterIf: {table.pop_scope();}
+
+ Statement: LBRACE {table.push_scope();} Statements RBRACE {table.pop_scope();}
+            | Type ID SC {table.insert_symbol($1,$2, yylineno);}
+			| Type ID ASSIGN Exp SC {table.insert_and_check_symbol($1,$2,$4, yylineno);}
+			| ID ASSIGN Exp SC {table.check_symbol($1, $3, yylineno);}
+			| Call SC {table.check_func($1, yylineno);}
+			| RETURN SC {table.check_return(yylineno);}
+			| RETURN Exp SC {table.check_return($2->type, yylineno);}
+			| IF LPAREN ExpForIf RPAREN Statement AfterIf {}
+			| IF LPAREN ExpForIf RPAREN Statement AfterIf ELSE {table.push_scope();} Statement {table.pop_scope();}
+			| WHILE LPAREN {table.push_scope(); table.while_scope++;} Exp RPAREN {table.check_exp_is_bool($4, yylineno);}Statement {table.pop_scope(); table.while_scope--;}
+			| BREAK SC {table.check_break(yylineno);} //Inside while
+			| CONTINUE SC {table.check_continue(yylineno);} //Inside while
+
+Call: ID LPAREN ExpList RPAREN {$$ = new FuncCallNode($1, $3);}
+      | ID LPAREN RPAREN {$$ = new FuncCallNode($1);}
+
+
+ExpList: Exp {$$ = $1;}
+         | Exp COMMA ExpList {$1->next = $3; $3->back = $1; $$ = $1;}
+
+
+Type: INT {$$=new TypeNode(_INT);}
+      | BYTE {$$=new TypeNode(_BYTE);}
+	  | BOOL {$$=new TypeNode(_BOOL);}
+
+Exp: LPAREN Exp RPAREN {$$ = $2;}
+	 | Exp IF LPAREN Exp RPAREN ELSE Exp {$$ = table.find_type_from_tri($1,$4,$7, yylineno);} %prec IF
+     | Exp ADD_MIN Exp {$$ = table.find_type_from_add_min($1, $3, yylineno);}
+     | Exp MUL_DIV Exp {$$ = table.find_type_from_mul_div($1, $3, yylineno);}
+	 | ID {$$ = table.find_type_from_id($1, yylineno);}
+	 | Call {$$ = table.find_type_from_call_func($1, yylineno);}
+	 | NUM {$$ = new TypeNode(_INT);}
+	 | NUM B {table.check_byte($1, yylineno); $$ = new TypeNode(_BYTE);}
+	 | STRING {$$ = new TypeNode(_STRING);}
+	 | TRUE {$$ = new TypeNode(_BOOL);}
+	 | FALSE {$$ = new TypeNode(_BOOL);}
+	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = new TypeNode(_BOOL);}
+	 | Exp AND Exp {table.check_logical_op($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
+	 | Exp OR Exp {table.check_logical_op($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
+	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
+	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type);}
+
+
+%%
+
+int main()
+{
+    return yyparse();
+}
+
+void yyerror(char const* s){
+    errorSyn(yylineno);
+}
