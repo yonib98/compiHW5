@@ -37,7 +37,14 @@ void CodeBuffer::bpatch(const vector<pair<int,BranchLabelIndex>>& address_list, 
 		replace(buffer[address], "@", "%" + label, labelIndex);
     }
 }
-
+std::string CodeBuffer::getCode(){
+    std::stringstream  s;
+    for (std::vector<string>::const_iterator it = buffer.begin(); it != buffer.end(); ++it)
+    {
+        s << *it << endl;
+    }
+    return s.str();
+}
 void CodeBuffer::printCodeBuffer(){
 	for (std::vector<string>::const_iterator it = buffer.begin(); it != buffer.end(); ++it) 
 	{

@@ -53,6 +53,7 @@ public:
 	
 	//prints the content of the code buffer to stdout
 	void printCodeBuffer();
+    std::string getCode();
 
 	// ******** Methods to handle the data section ******** //
 	//write a line to the global section
