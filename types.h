@@ -50,7 +50,18 @@ struct TypeNode: public Expression {
     TypeNode* back;
     vector<pair<int, BranchLabelIndex>> true_list;
     vector< pair<int, BranchLabelIndex>> false_list;
-    TypeNode(Type type): type(type), next(nullptr), back(nullptr) {};
+    std::string start_label;
+    std::string end_label;
+    vector<pair<int, BranchLabelIndex>> start_list;
+    vector<pair<int, BranchLabelIndex>> end_list;
+    TypeNode(Type type , bool imExp = false): type(type), next(nullptr), back(nullptr) {
+        if(imExp) {
+            CodeBuffer &cb = CodeBuffer::instance();
+            int loc = cb.emit("br label @");
+            start_label = cb.genLabel();
+            start_list = cb.makelist({loc, FIRST});
+        }
+    };
 };
 
 struct IdNode: public Expression{
@@ -112,11 +123,11 @@ struct SymTable{
     void push_scope();
     Scope& top_scope();
     void pop_scope();
-    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place="0");
+    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place="0",bool call_from_insert_and_check = false);
     void check_symbol(IdNode* id_n, TypeNode* type_n, int lineno);
     void insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode* exp_n, int lineno);
     void create_func(TypeNode* return_type, IdNode* id, NodeParams* params,  int lineno);
-    std::string check_func(FuncCallNode* call_n, int line_no);
+    std::string check_func(FuncCallNode* call_n, int line_no, TypeNode* return_type = nullptr);
     void check_return(int line_no);
     void check_return(Type type, int line_no);
     void check_exp_is_bool(TypeNode* type_n, int line_no);

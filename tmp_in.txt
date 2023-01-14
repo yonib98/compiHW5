@@ -1,5 +1,3 @@
 void main(){
-    int x = 0;
-    bool y = true and true;
-    printi((int)y);
+bool x = true and true; label_8: start_e1
 }

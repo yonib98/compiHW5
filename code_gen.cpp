@@ -25,6 +25,17 @@ void debug_lli(){
 }
 
 
+void fix_start_label(TypeNode* e_res, TypeNode* e1, TypeNode* e2){
+    CodeBuffer& cb = CodeBuffer::instance();
+    cb.bpatch(e2->start_list, e2->start_label);
+    e_res->start_label = e1->start_label;
+    e_res->start_list = e1->start_list;
+}
+void fix_normal_exp(TypeNode* e){
+    CodeBuffer& cb = CodeBuffer::instance();
+    cb.bpatch(e->start_list, e->start_label);
+}
+
 void CodeGenerator::const_strings_definition(){
     CodeBuffer& cb = CodeBuffer::instance();
     std::vector<std::string> strings = {
@@ -64,6 +75,7 @@ void CodeGenerator::gen_exp_num(TypeNode* e, std::string value){
     e->place = cb.freshVar();
     std::string code = e->place +" = add i32 0, " + value;
     cb.emit(code);
+
 }
 void CodeGenerator::gen_exp_binop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, char op){
     CodeBuffer& cb  = CodeBuffer::instance();
@@ -105,7 +117,18 @@ void CodeGenerator::gen_exp_binop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, c
         casting_code << e_res->place << " = and i32 " << old_var << ", " << mask;
         cb.emit(casting_code.str());
     }
+    fix_start_label(e_res,e1,e2);
 
+
+
+}
+void CodeGenerator::gen_defult_bool(int offset){
+    CodeBuffer& cb  = CodeBuffer::instance();
+    std::string tmp_place = cb.freshVar();
+    std::stringstream code;
+    code << tmp_place << " = " << "i32 0";
+    cb.emit(code.str());
+    gen_stack_var(offset, tmp_place);
 }
 void CodeGenerator::gen_bool(TypeNode *e, bool value){
     CodeBuffer& cb  = CodeBuffer::instance();
@@ -116,18 +139,26 @@ void CodeGenerator::gen_bool(TypeNode *e, bool value){
         int loc = cb.emit("br label @");
         e->true_list = cb.makelist({loc, FIRST});
     }
+    //cb.bpatch(e->start_list, e->start_label);
 }
 void CodeGenerator::gen_exp_and(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string label){
     CodeBuffer& cb  = CodeBuffer::instance();
     cb.bpatch(e1->true_list, label);
     e_res->false_list = cb.merge(e1->false_list, e2->false_list);
     e_res->true_list = e2->true_list;
+    fix_start_label(e_res, e1, e2);
 }
+
 void CodeGenerator::gen_exp_or(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string label){
     CodeBuffer& cb  = CodeBuffer::instance();
     cb.bpatch(e1->false_list, label);
     e_res->true_list = cb.merge(e1->true_list, e2->true_list);
     e_res->false_list = e2->false_list;
+
+    fix_start_label(e_res, e1, e2);
+
+
+
 }
 void CodeGenerator::gen_exp_relop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string relop){
     CodeBuffer& cb  = CodeBuffer::instance();
@@ -157,7 +188,7 @@ void CodeGenerator::gen_exp_relop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, s
     int loc = cb.emit(code.str());
     e_res->true_list = cb.makelist({loc, FIRST});
     e_res->false_list = cb.makelist({loc, SECOND});
-
+    fix_start_label(e_res, e1, e2);
 }
 void CodeGenerator::gen_exp_bool_labels(TypeNode* e, int offset) {
     std::string base_addr = base_addr_vec.back();
@@ -192,6 +223,7 @@ void CodeGenerator::gen_stack_var(int offset, std::string place) {
     code << ptr << " = " << "getelementptr [50 x i32], [50 x i32]* " << base_addr << ", i32 0, i32 " << offset;
     code << std::endl << "store i32 " << place << ", i32* " << ptr;
     cb.emit(code.str());
+
 }
 void CodeGenerator::get_exp_id_place(TypeNode* e, int offset){
     std::string base_addr = base_addr_vec.back();
@@ -200,27 +232,22 @@ void CodeGenerator::get_exp_id_place(TypeNode* e, int offset){
     e->place = cb.freshVar();
     std::stringstream code;
     if(offset >= 0){
+        int loc = cb.emit("br label @");
+        e->start_label = cb.genLabel();
+        e->start_list = cb.makelist({loc, FIRST});
+
         code << ptr << " = " << "getelementptr [50 x i32], [50 x i32]* " << base_addr << ", i32 0, i32 " << offset << std::endl;
         code << e->place << " = load i32, i32* " << ptr;
         cb.emit(code.str());
+        //fix_start_and_end_labels(e);
     }else{
         e->place = "%" + std::to_string((-offset) - 1);
     }
+
 }
 
 void CodeGenerator::gen_if(TypeNode* e, std::string true_label){
     CodeBuffer& cb  = CodeBuffer::instance();
-//    if(e->true_list.size() == 0 && e->false_list.size() == 0){
-//        std::string reg = cb.freshVar();
-//        std::stringstream  code;
-//        code << reg << " =  icmp eq i32 1, " << e->place << std::endl;
-//        code << "br i1 " << reg << ", label " << true_label << ", label " << false_label;
-//        cb.emit(code.str());
-//    }else{
-//        cb.bpatch(e->true_list, true_label);
-//        cb.bpatch(e->false_list, false_label);
-//
-//    }
     cb.bpatch(e->true_list, true_label);
 
     int loc = cb.emit("br label @");
@@ -240,6 +267,9 @@ void CodeGenerator::gen_if_bool(TypeNode* e){
         int loc = cb.emit(code.str());
         e->true_list = cb.makelist({loc, FIRST});
         e->false_list = cb.makelist({loc, SECOND});
+    }else {
+        cb.bpatch(e->start_list, e->start_label);
+        //fix_start_and_end_labels(e);
     }
 }
 void CodeGenerator::gen_if_else(TypeNode* e, std::string true_label,  NarkerNode* n,std::string false_label){
@@ -251,6 +281,8 @@ void CodeGenerator::gen_if_else(TypeNode* e, std::string true_label,  NarkerNode
     n->next_list = cb.merge(n->next_list, {{loc, FIRST}});
     std::string next_label = CodeBuffer::instance().genLabel();
     cb.bpatch(n->next_list, next_label);
+    //fix_start_and_end_labels(e);
+    cb.bpatch(e->start_list, e->start_label);
 
 }
 void CodeGenerator::gen_start_while(std::string start_label, NarkerNode* n){
@@ -308,7 +340,7 @@ void CodeGenerator::gen_func(TypeNode* ret_type_n, std::string id, NodeParams* p
     code << func_base_addr << " = " << "alloca [50 x i32]";
     cb.emit(code.str());
 }
-std::string CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNode* params){
+std::string CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNode* params, TypeNode* type_node){
     CodeBuffer& cb  = CodeBuffer::instance();
     std::stringstream code;
     std::string real_ret_type = ret_type != _VOID ? "i32" : "void";
@@ -347,18 +379,24 @@ std::string CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCall
     code << ")" << std::endl;
 
     cb.emit(code.str());
+    if(type_node != nullptr){
+        cb.bpatch(type_node->start_list, type_node->start_label);
+    }
+
     return reg;
 }
 void CodeGenerator::gen_ret_with_exp(TypeNode* ret_exp){
-    CodeBuffer& bf = CodeBuffer::instance();
+    CodeBuffer& cb = CodeBuffer::instance();
     std::string ret = ret_exp->type != _VOID ? "i32" : "void";
     std::stringstream  code;
     code << "ret " << ret << " " << ret_exp->place;
-    bf.emit(code.str());
+    cb.emit(code.str());
+
 }
 
 void CodeGenerator::gen_ret(TypeNode* ret_type){
     //IN THE END OF EACH FUNCTION.
+
     std::string ret = ret_type->type != _VOID ? "i32 0" : "void";
     CodeBuffer::instance().emit("ret " + ret + "\n}");
     base_addr_vec.pop_back();
@@ -377,4 +415,5 @@ void CodeGenerator::gen_string(TypeNode* e, std::string value){
     code << e->place << " = " << "getelementptr " << "[" << size << " x i8], [" <<  size << " x i8]* @s" << counter <<", i32 0, i32 0";
     cb.emit(code.str());
     counter++;
+    //fix_start_label(e);
 }

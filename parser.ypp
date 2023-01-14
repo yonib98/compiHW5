@@ -9,6 +9,7 @@
 
     int yylex();
     void yyerror(char const*);
+    extern void fix_normal_exp(TypeNode *e);
     extern int yylineno;
     extern SymTable table;
     extern CodeGenerator cg;
@@ -96,7 +97,7 @@ Program: {start_program();} Funcs {end_program(yychar, YYEOF, yylineno);}
 
 
  RetType: Type {$$ = $1;}
-		  | VOID {$$ = new TypeNode(_VOID);}
+		  | VOID {$$ = new TypeNode(_VOID, false);}
 
  Formals : /*epsilon*/ {$$ = nullptr;}
 		  | FormalsList {$$ = $1;}
@@ -116,16 +117,16 @@ AfterIf: {table.pop_scope();}
 
  Statement: LBRACE {table.push_scope();} Statements RBRACE {table.pop_scope();}
             | Type ID SC {table.insert_symbol($1,$2, yylineno);}
-			| Type ID ASSIGN Exp SC {table.insert_and_check_symbol($1,$2,$4, yylineno);}
-			| ID ASSIGN Exp SC {table.check_symbol($1, $3, yylineno);}
+			| Type ID ASSIGN Exp SC {table.insert_and_check_symbol($1,$2,$4, yylineno); fix_normal_exp($4);}
+			| ID ASSIGN Exp SC {table.check_symbol($1, $3, yylineno);fix_normal_exp($3);}
 			| Call SC {table.check_func($1, yylineno);}
 			| RETURN SC {table.check_return(yylineno); CodeBuffer::instance().emit("ret void");}
-			| RETURN Exp SC {table.check_return($2->type, yylineno);cg.gen_ret_with_exp($2);}
-			| IF LPAREN ExpForIf RPAREN M Statement AfterIf {cg.gen_if($3, $5->label);}
-			| IF LPAREN ExpForIf RPAREN M Statement AfterIf ELSE {table.push_scope();} N M Statement {table.pop_scope(); cg.gen_if_else($3, $5->label, $10, $11->label);}
+			| RETURN Exp SC {table.check_return($2->type, yylineno);cg.gen_ret_with_exp($2); fix_normal_exp($2);}
+			| IF LPAREN ExpForIf RPAREN M Statement AfterIf {cg.gen_if($3, $5->label); fix_normal_exp($3);}
+			| IF LPAREN ExpForIf RPAREN M Statement AfterIf ELSE {table.push_scope();} N M Statement {table.pop_scope(); cg.gen_if_else($3, $5->label, $10, $11->label); fix_normal_exp($3);}
 			| WHILE LPAREN N M  {table.push_scope(); table.while_scope++; cg.gen_start_while($4->label, $3);}
 			    Exp RPAREN {table.check_exp_is_bool($6, yylineno);} M Statement
-			    {table.pop_scope(); table.while_scope--; cg.gen_while($6 ,$9->label, $4->label); }
+			    {table.pop_scope(); table.while_scope--; cg.gen_while($6 ,$9->label, $4->label); fix_normal_exp($6); }
 			| BREAK SC {table.check_break(yylineno); cg.gen_break();} //Inside while
 			| CONTINUE SC {table.check_continue(yylineno); cg.gen_continue();} //Inside while
 
@@ -133,13 +134,13 @@ Call: ID LPAREN ExpList RPAREN {$$ = new FuncCallNode($1, $3);}
       | ID LPAREN RPAREN {$$ = new FuncCallNode($1);}
 
 
-ExpList: Exp {$$ = $1;}
-         | Exp COMMA ExpList {$1->next = $3; $3->back = $1; $$ = $1;}
+ExpList: Exp {$$ = $1; fix_normal_exp($1);}
+         | Exp COMMA ExpList {$1->next = $3; $3->back = $1; $$ = $1; fix_normal_exp($1);}
 
 
-Type: INT {$$=new TypeNode(_INT);}
-      | BYTE {$$=new TypeNode(_BYTE);}
-	  | BOOL {$$=new TypeNode(_BOOL);}
+Type: INT {$$=new TypeNode(_INT, false);}
+      | BYTE {$$=new TypeNode(_BYTE, false);}
+	  | BOOL {$$=new TypeNode(_BOOL, false);}
 
 Exp: LPAREN Exp RPAREN {$$ = $2;}
 	 | Exp IF LPAREN Exp RPAREN ELSE Exp {$$ = table.find_type_from_tri($1,$4,$7, yylineno);} %prec IF
@@ -147,16 +148,16 @@ Exp: LPAREN Exp RPAREN {$$ = $2;}
      | Exp MUL_DIV Exp {$$ = table.find_type_from_mul_div($1, $3, yylineno);cg.gen_exp_binop($$, $1, $3, $2->op);}
 	 | ID {$$ = table.find_type_from_id($1, yylineno);}
 	 | Call {$$ = table.find_type_from_call_func($1, yylineno);}
-	 | NUM {$$ = new TypeNode(_INT); cg.gen_exp_num($$, $1->value); }
-	 | NUM B {table.check_byte($1, yylineno); $$ = new TypeNode(_BYTE); cg.gen_exp_num($$, $1->value);}
-	 | STRING {$$ = new TypeNode(_STRING); cg.gen_string($$, $1->value);}
-	 | TRUE {$$ = new TypeNode(_BOOL); cg.gen_bool($$, $1->value);}
-	 | FALSE {$$ = new TypeNode(_BOOL); cg.gen_bool($$, $1->value);}
-	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = new TypeNode(_BOOL);}
+	 | NUM {$$ = new TypeNode(_INT, true); cg.gen_exp_num($$, $1->value); }
+	 | NUM B {table.check_byte($1, yylineno); $$ = new TypeNode(_BYTE, true); cg.gen_exp_num($$, $1->value);}
+	 | STRING {$$ = new TypeNode(_STRING, true); cg.gen_string($$, $1->value);}
+	 | TRUE {$$ = new TypeNode(_BOOL, true); cg.gen_bool($$, $1->value);}
+	 | FALSE {$$ = new TypeNode(_BOOL, true); cg.gen_bool($$, $1->value);}
+	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = new TypeNode(_BOOL, true);}
 	 | Exp AND M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_and($$, $1, $4, $3->label);}
 	 | Exp OR M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_or($$, $1 ,$4, $3->label);}
 	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_relop($$, $1, $3, $2->relop);}
-	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type);}
+	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type, true);}
 
 M: /*epsilon*/ {$$ = new MarkerNode();}
 N: /*epsilon*/ {$$ = new NarkerNode();}

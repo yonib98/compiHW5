@@ -9,6 +9,7 @@ public:
     void gen_exp_binop(TypeNode* e_res, TypeNode *e1, TypeNode *e2, char op);
 
     void gen_bool(TypeNode *e, bool value);
+    void gen_defult_bool(int offset);
     void gen_string(TypeNode *e, std::string value);
     void gen_exp_and(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string label);
     void gen_exp_or(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string label);
@@ -27,10 +28,10 @@ public:
     void gen_ret_with_exp(TypeNode* ret_exp);
     void check_div_by_zero(TypeNode* e);
     void gen_div_by_zero_msg();
-
+    void fix_normal_exp(TypeNode *e);
 
     //funcs
     void gen_func(TypeNode* ret_type_n, std::string id, NodeParams* params_n);
-    std::string gen_func_call(Type ret_type, std::string id, FuncCallNode* params);
+    std::string gen_func_call(Type ret_type, std::string id, FuncCallNode* params, TypeNode* type_node);
 
 };
