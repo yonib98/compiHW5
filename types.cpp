@@ -1,10 +1,14 @@
 #include "types.h"
 #include "hw3_output.hpp"
 #include "bp.hpp"
+#include "code_gen.h"
 #include <string>
 #include <iostream>
+
 using namespace std;
 SymTable table;
+extern CodeGenerator cg;
+extern void debug_lli();
 
 //enum Type{
 //    INT, BYTE, BOOL, STRING, VOID,
@@ -135,9 +139,10 @@ void SymTable::check_symbol(IdNode* id_n, TypeNode* type_n, int lineno) {
         output::errorMismatch(lineno);
         exit(0);
     }
+    cg.gen_stack_var( sym_record->offset, type_n->place);
 
 }
-void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno) {
+void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place) {
     if(get_record(id_n)!=nullptr){
         output::errorDef(lineno, id_n->id);
         exit(0);
@@ -146,13 +151,21 @@ void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno) {
     offsets.pop_back();
     offsets.push_back(offset+1);
     top_scope().insert_local_param(type_n->type,offset, id_n->id);
+    if (type_n->type==_BOOL){
+        cg.gen_exp_bool_labels(type_n, offset);
+    }else{
+        cg.gen_stack_var( offset, place);
+    }
+
+
 }
 void SymTable::insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode* exp_n, int lineno) {
     if (type_n->type != exp_n->type && !(type_n->type==_INT && exp_n->type ==_BYTE)){
         output::errorMismatch(lineno);
         exit(0);
     }
-    insert_symbol(type_n, id_n, lineno);
+    insert_symbol(exp_n, id_n, lineno, exp_n->place);
+
 }
 void SymTable::create_func(TypeNode* ret_type_n, IdNode* id_n, NodeParams* params_n, int lineno) {
     if(get_record(id_n)!=nullptr){
@@ -167,12 +180,12 @@ void SymTable::create_func(TypeNode* ret_type_n, IdNode* id_n, NodeParams* param
     }
     table.push_scope();
     top_scope().push_params(params_n, lineno);
-
+    cg.gen_func(ret_type_n, id_n->id, params_n);
 }
 
 
 
-void SymTable::check_func(FuncCallNode* call_n, int lineno){
+std::string SymTable::check_func(FuncCallNode* call_n, int lineno){
     Scope::Record* func_record = get_record(call_n->id->id);
     if(func_record == nullptr || func_record->is_func==false){
         output::errorUndefFunc(lineno, call_n->id->id);
@@ -183,7 +196,7 @@ void SymTable::check_func(FuncCallNode* call_n, int lineno){
     vector<string> after_hamara = hamara(func_record->params_head);
 
     if( tmp_type_node == nullptr && tmp_param_node == nullptr){
-        return;
+        return cg.gen_func_call(func_record->type, func_record->id , call_n);
     }
     if( tmp_type_node == nullptr || tmp_param_node == nullptr){
         output::errorPrototypeMismatch(lineno, call_n->id->id, after_hamara);
@@ -201,6 +214,8 @@ void SymTable::check_func(FuncCallNode* call_n, int lineno){
         output::errorPrototypeMismatch(lineno, call_n->id->id, after_hamara);
         exit(0);
     }
+
+    return cg.gen_func_call(func_record->type, func_record->id , call_n);
 }
 void SymTable::check_return(int line_no){
     if (table.current_func->type != _VOID){
@@ -311,7 +326,10 @@ TypeNode* SymTable::find_type_from_id(IdNode* id_n, int line_no){
         output::errorUndef(line_no, id_n->id);
         exit(0);
     }
-    return new TypeNode(record->type);
+    TypeNode* tmp = new TypeNode(record->type);
+    cg.get_exp_id_place(tmp, record->offset);
+
+    return tmp;
 
 }
 TypeNode* SymTable::find_type_from_call_func(FuncCallNode* call_n, int line_no){
@@ -321,8 +339,12 @@ TypeNode* SymTable::find_type_from_call_func(FuncCallNode* call_n, int line_no){
         output::errorUndefFunc(line_no, call_n->id->id);
         exit(0);
     }
-    check_func(call_n, line_no);
-    return new TypeNode(func_record->type);
+    TypeNode* tmp = new TypeNode(func_record->type);
+    std::string place = check_func(call_n, line_no);
+    if(func_record->type != _VOID){
+        tmp->place = place;
+    }
+    return tmp;
 }
 
 
@@ -337,8 +359,24 @@ void start_program() {
     IdNode* id_int_node = new IdNode("int");
     NodeParams* int_node = new NodeParams(type_int_node, id_int_node);
     table.top_scope().insert_func(_VOID, "printi", int_node);
-}
+    CodeBuffer& cb = CodeBuffer::instance();
+    cb.emit("declare i32 @printf(i8*, ...)");
+    cb.emit("declare void @exit(i32)");
+    cb.emit("@.int_specifier = constant [4 x i8] c\"%d\\0A\\00\"");
+    cb.emit("@.str_specifier = constant [4 x i8] c\"%s\\0A\\00\"");
+    cg.const_strings_definition();
+    std::string printi_code = "define void @printi(i32) {\n"
+                              "%spec_ptr = getelementptr [4 x i8], [4 x i8]* @.int_specifier, i32 0, i32 0\n"
+                              "call i32 (i8*, ...) @printf(i8* %spec_ptr, i32 %0)\n"
+                              "ret void\n}";
 
+    std::string print_code ="define void @print(i8*) {\n"
+                            "%spec_ptr = getelementptr [4 x i8], [4 x i8]* @.str_specifier, i32 0, i32 0\n"
+                            "call i32 (i8*, ...) @printf(i8* %spec_ptr, i8* %0)\n"
+                            "ret void\n}";
+    cb.emit(printi_code);
+    cb.emit(print_code);
+}
 void end_program(int yychar, int yyeof, int line_no) {
     if (yychar != yyeof){
         output::errorSyn(line_no);
@@ -350,5 +388,7 @@ void end_program(int yychar, int yyeof, int line_no) {
     }
     table.pop_scope();
     CodeBuffer& cb =  CodeBuffer::instance();
+    cb.printGlobalBuffer();
     cb.printCodeBuffer();
+    debug_lli();
 }

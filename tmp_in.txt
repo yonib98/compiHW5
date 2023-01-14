@@ -1,4 +1,5 @@
 void main(){
- int z = 5 + 3 ;
- printi(z);
+    int x = 0;
+    bool y = true and true;
+    printi((int)y);
 }

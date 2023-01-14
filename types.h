@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "bp.hpp"
 using namespace std;
 
 enum Type{
@@ -12,6 +13,34 @@ enum Type{
     _STRING,
     _VOID,
 };
+struct MarkerNode {
+    std::string label;
+    MarkerNode(): label(CodeBuffer::instance().genLabel()) {};
+};
+struct NarkerNode{
+    vector<pair<int,BranchLabelIndex>> next_list;
+    NarkerNode(){
+        int loc =CodeBuffer::instance().emit("br label @");
+        next_list = CodeBuffer::instance().makelist({loc , FIRST});
+    }
+};
+struct BoolNode{
+    bool value;
+    BoolNode(bool value): value(value) {};
+
+};
+struct StringNode{
+    std::string value;
+    StringNode(std::string value): value(value) {};
+};
+struct RelopNode{
+    std::string relop;
+    RelopNode(std::string relop): relop(relop) {};
+};
+struct BinopNode{
+    char op;
+    BinopNode(char op): op(op) {};
+};
 struct Expression{
     std::string place;
 };
@@ -19,8 +48,11 @@ struct TypeNode: public Expression {
     Type type;
     TypeNode* next;
     TypeNode* back;
+    vector<pair<int, BranchLabelIndex>> true_list;
+    vector< pair<int, BranchLabelIndex>> false_list;
     TypeNode(Type type): type(type), next(nullptr), back(nullptr) {};
 };
+
 struct IdNode: public Expression{
     string id;
     IdNode(string id): id(id){};
@@ -80,11 +112,11 @@ struct SymTable{
     void push_scope();
     Scope& top_scope();
     void pop_scope();
-    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno);
+    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place="0");
     void check_symbol(IdNode* id_n, TypeNode* type_n, int lineno);
     void insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode* exp_n, int lineno);
     void create_func(TypeNode* return_type, IdNode* id, NodeParams* params,  int lineno);
-    void check_func(FuncCallNode* call_n, int line_no);
+    std::string check_func(FuncCallNode* call_n, int line_no);
     void check_return(int line_no);
     void check_return(Type type, int line_no);
     void check_exp_is_bool(TypeNode* type_n, int line_no);

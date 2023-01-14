@@ -39,6 +39,10 @@ void CodeBuffer::bpatch(const vector<pair<int,BranchLabelIndex>>& address_list, 
 }
 std::string CodeBuffer::getCode(){
     std::stringstream  s;
+    for (std::vector<string>::const_iterator it = globalDefs.begin(); it != globalDefs.end(); ++it)
+    {
+        s << *it << endl;
+    }
     for (std::vector<string>::const_iterator it = buffer.begin(); it != buffer.end(); ++it)
     {
         s << *it << endl;

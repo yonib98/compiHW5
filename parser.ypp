@@ -11,14 +11,23 @@
     void yyerror(char const*);
     extern int yylineno;
     extern SymTable table;
+    extern CodeGenerator cg;
+    extern std::vector<std::string> start_labels_while_vec;
+    extern std::vector<std::vector<pair<int, BranchLabelIndex>>> end_addresses_while_vec;
 %}
 
 %union{
     TypeNode* typeNode;
+    BinopNode* binopNode;
     IdNode* idNode;
+    StringNode* stringNode;
     NumNode* numNode;
+    BoolNode* boolNode;
+    RelopNode* relopNode;
     NodeParams* nodeParams;
     FuncCallNode* funcCallNode;
+    MarkerNode* markerNode;
+    NarkerNode* narkerNode;
 }
 
 %token <numNode> NUM
@@ -29,8 +38,8 @@
 %token BOOL
 
 
-%token TRUE
-%token FALSE
+%token <boolNode> TRUE
+%token <boolNode> FALSE
 %token RETURN
 
 %token WHILE
@@ -41,7 +50,7 @@
 %token LBRACE
 %token RBRACE
 %token <idNode> ID
-%token STRING
+%token <stringNode> STRING
 %nonassoc IF
 
 %left ASSIGN
@@ -49,10 +58,10 @@
 %left OR
 %left AND
 
-%left RELOP
+%left <relopNode> RELOP
 
-%left ADD_MIN
-%left MUL_DIV
+%left <binopNode> ADD_MIN
+%left <binopNode> MUL_DIV
 
 %right NOT
 
@@ -70,6 +79,9 @@
 %type <typeNode> Type
 %type <typeNode> Exp;
 %type <typeNode> ExpForIf;
+%type <markerNode> AfterIf;
+%type <markerNode> M;
+%type <narkerNode> N;
 
 %%
 Program: {start_program();} Funcs {end_program(yychar, YYEOF, yylineno);}
@@ -80,13 +92,12 @@ Program: {start_program();} Funcs {end_program(yychar, YYEOF, yylineno);}
 
 
  FuncDecl: RetType ID LPAREN Formals RPAREN {table.create_func($1, $2, $4, yylineno);} LBRACE Statements RBRACE
- {table.pop_scope();}
+ {table.pop_scope(); cg.gen_ret($1);}
 
 
  RetType: Type {$$ = $1;}
 		  | VOID {$$ = new TypeNode(_VOID);}
 
-//todo null
  Formals : /*epsilon*/ {$$ = nullptr;}
 		  | FormalsList {$$ = $1;}
 
@@ -100,7 +111,7 @@ FormalsList : FormalDecl {$$ = $1; }
  Statements: Statement {}
 			 | Statements Statement {}
 
-ExpForIf: Exp {table.check_exp_is_bool($1, yylineno); table.push_scope(); $$=$1;}
+ExpForIf: Exp {table.check_exp_is_bool($1, yylineno); table.push_scope(); $$=$1;  cg.gen_if_bool($1);}
 AfterIf: {table.pop_scope();}
 
  Statement: LBRACE {table.push_scope();} Statements RBRACE {table.pop_scope();}
@@ -108,13 +119,15 @@ AfterIf: {table.pop_scope();}
 			| Type ID ASSIGN Exp SC {table.insert_and_check_symbol($1,$2,$4, yylineno);}
 			| ID ASSIGN Exp SC {table.check_symbol($1, $3, yylineno);}
 			| Call SC {table.check_func($1, yylineno);}
-			| RETURN SC {table.check_return(yylineno);}
-			| RETURN Exp SC {table.check_return($2->type, yylineno);}
-			| IF LPAREN ExpForIf RPAREN Statement AfterIf {}
-			| IF LPAREN ExpForIf RPAREN Statement AfterIf ELSE {table.push_scope();} Statement {table.pop_scope();}
-			| WHILE LPAREN {table.push_scope(); table.while_scope++;} Exp RPAREN {table.check_exp_is_bool($4, yylineno);}Statement {table.pop_scope(); table.while_scope--;}
-			| BREAK SC {table.check_break(yylineno);} //Inside while
-			| CONTINUE SC {table.check_continue(yylineno);} //Inside while
+			| RETURN SC {table.check_return(yylineno); CodeBuffer::instance().emit("ret void");}
+			| RETURN Exp SC {table.check_return($2->type, yylineno);cg.gen_ret_with_exp($2);}
+			| IF LPAREN ExpForIf RPAREN M Statement AfterIf {cg.gen_if($3, $5->label);}
+			| IF LPAREN ExpForIf RPAREN M Statement AfterIf ELSE {table.push_scope();} N M Statement {table.pop_scope(); cg.gen_if_else($3, $5->label, $10, $11->label);}
+			| WHILE LPAREN N M  {table.push_scope(); table.while_scope++; cg.gen_start_while($4->label, $3);}
+			    Exp RPAREN {table.check_exp_is_bool($6, yylineno);} M Statement
+			    {table.pop_scope(); table.while_scope--; cg.gen_while($6 ,$9->label, $4->label); }
+			| BREAK SC {table.check_break(yylineno); cg.gen_break();} //Inside while
+			| CONTINUE SC {table.check_continue(yylineno); cg.gen_continue();} //Inside while
 
 Call: ID LPAREN ExpList RPAREN {$$ = new FuncCallNode($1, $3);}
       | ID LPAREN RPAREN {$$ = new FuncCallNode($1);}
@@ -130,21 +143,23 @@ Type: INT {$$=new TypeNode(_INT);}
 
 Exp: LPAREN Exp RPAREN {$$ = $2;}
 	 | Exp IF LPAREN Exp RPAREN ELSE Exp {$$ = table.find_type_from_tri($1,$4,$7, yylineno);} %prec IF
-     | Exp ADD_MIN Exp {$$ = table.find_type_from_add_min($1, $3, yylineno); CodeGenerator::instance().gen_exp_add($$, $1, $3); }
-     | Exp MUL_DIV Exp {$$ = table.find_type_from_mul_div($1, $3, yylineno);}
+     | Exp ADD_MIN Exp {$$ = table.find_type_from_add_min($1, $3, yylineno); cg.gen_exp_binop($$, $1, $3, $2->op); }
+     | Exp MUL_DIV Exp {$$ = table.find_type_from_mul_div($1, $3, yylineno);cg.gen_exp_binop($$, $1, $3, $2->op);}
 	 | ID {$$ = table.find_type_from_id($1, yylineno);}
 	 | Call {$$ = table.find_type_from_call_func($1, yylineno);}
-	 | NUM {$$ = new TypeNode(_INT); CodeGenerator::instance().gen_exp($$, $1->value); }
-	 | NUM B {table.check_byte($1, yylineno); $$ = new TypeNode(_BYTE);}
-	 | STRING {$$ = new TypeNode(_STRING);}
-	 | TRUE {$$ = new TypeNode(_BOOL);}
-	 | FALSE {$$ = new TypeNode(_BOOL);}
+	 | NUM {$$ = new TypeNode(_INT); cg.gen_exp_num($$, $1->value); }
+	 | NUM B {table.check_byte($1, yylineno); $$ = new TypeNode(_BYTE); cg.gen_exp_num($$, $1->value);}
+	 | STRING {$$ = new TypeNode(_STRING); cg.gen_string($$, $1->value);}
+	 | TRUE {$$ = new TypeNode(_BOOL); cg.gen_bool($$, $1->value);}
+	 | FALSE {$$ = new TypeNode(_BOOL); cg.gen_bool($$, $1->value);}
 	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = new TypeNode(_BOOL);}
-	 | Exp AND Exp {table.check_logical_op($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
-	 | Exp OR Exp {table.check_logical_op($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
-	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL);}
+	 | Exp AND M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_and($$, $1, $4, $3->label);}
+	 | Exp OR M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_or($$, $1 ,$4, $3->label);}
+	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_relop($$, $1, $3, $2->relop);}
 	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type);}
 
+M: /*epsilon*/ {$$ = new MarkerNode();}
+N: /*epsilon*/ {$$ = new NarkerNode();}
 
 %%
 
