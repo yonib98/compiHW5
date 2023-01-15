@@ -126,7 +126,7 @@ void CodeGenerator::gen_defult_bool(int offset){
     CodeBuffer& cb  = CodeBuffer::instance();
     std::string tmp_place = cb.freshVar();
     std::stringstream code;
-    code << tmp_place << " = " << "i32 0";
+    code << tmp_place << " = " << "add i32 0, 0";
     cb.emit(code.str());
     gen_stack_var(offset, tmp_place);
 }
@@ -243,6 +243,26 @@ void CodeGenerator::get_exp_id_place(TypeNode* e, int offset){
     }else{
         e->place = "%" + std::to_string((-offset) - 1);
     }
+    //If Bool we need to gen_bool branches..
+    if (e->type == _BOOL){
+        if (offset<0){
+            int loc = cb.emit("br label @");
+            e->start_label = cb.genLabel();
+            e->start_list = cb.makelist({loc, FIRST});
+        }
+        std::string cond_reg = cb.freshVar();
+        std::stringstream trunc_code;
+        // Convert to i1
+        trunc_code << cond_reg << " = trunc i32 " << e->place <<  " to i1";
+        cb.emit(trunc_code.str());
+        //Jump to true/false labels
+        std:stringstream branch_code;
+        branch_code << "br i1 " << cond_reg << " , label @, label @" << std::endl;
+        int loc = cb.emit(branch_code.str());
+        e->true_list = cb.makelist({loc, FIRST});
+        e->false_list = cb.makelist({loc, SECOND});
+    }
+
 
 }
 
@@ -258,19 +278,8 @@ void CodeGenerator::gen_if(TypeNode* e, std::string true_label){
 
 }
 void CodeGenerator::gen_if_bool(TypeNode* e){
-    CodeBuffer& cb  = CodeBuffer::instance();
-    if (e->place != "") {
-        std::string reg = cb.freshVar();
-        std::stringstream code;
-        code << reg << " =  icmp eq i32 1, " << e->place << std::endl;
-        code << "br i1 " << reg << ", label @, label @";
-        int loc = cb.emit(code.str());
-        e->true_list = cb.makelist({loc, FIRST});
-        e->false_list = cb.makelist({loc, SECOND});
-    }else {
+        CodeBuffer& cb = CodeBuffer::instance();
         cb.bpatch(e->start_list, e->start_label);
-        //fix_start_and_end_labels(e);
-    }
 }
 void CodeGenerator::gen_if_else(TypeNode* e, std::string true_label,  NarkerNode* n,std::string false_label){
     CodeBuffer& cb  = CodeBuffer::instance();
@@ -290,6 +299,7 @@ void CodeGenerator::gen_start_while(std::string start_label, NarkerNode* n){
     start_labels_while_vec.push_back(start_label);
     end_addresses_while_vec.push_back({});
     cb.bpatch(n->next_list, start_label);
+
 
 }
 void CodeGenerator::gen_while(TypeNode* e, std::string true_label, std::string start_while_label){
@@ -417,3 +427,33 @@ void CodeGenerator::gen_string(TypeNode* e, std::string value){
     counter++;
     //fix_start_label(e);
 }
+void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_bool, TypeNode* e_false, TypeNode* e_res){
+    CodeBuffer& cb = CodeBuffer::instance();
+    NarkerNode* jmp_to_end_label = new NarkerNode();
+    std::string to_start_label = cb.genLabel();
+
+    NarkerNode* middle_jmp = new NarkerNode();
+    std::string middle_label = cb.genLabel();
+
+    NarkerNode* jmp_to_bool_exp = new NarkerNode();
+    std::string end_label = cb.genLabel();
+
+    cb.bpatch(e_true->start_list, to_start_label);
+    cb.bpatch(e_false->start_list, e_false->start_label);
+    cb.bpatch(e_bool->true_list, e_true->start_label);
+    cb.bpatch(e_bool->false_list, e_false->start_label);
+    cb.bpatch(e_bool->start_list, e_bool->start_label);
+    std::vector<pair<int, BranchLabelIndex>> all_jumps_to_end = cb.merge(after_e1->next_list, jmp_to_end_label->next_list);
+    cb.bpatch(all_jumps_to_end, end_label);
+    cb.bpatch(jmp_to_bool_exp->next_list, e_bool->start_label);
+    e_res->place = cb.freshVar();
+    cb.bpatch(e_true->start_list, to_start_label);
+    std::string phi_true_label = e_true->is_tri ? e_true->start_label_tri: e_true->start_label;
+    std::string phi_false_label = e_false->is_tri ? e_false->start_label_tri: e_false->start_label;
+    cb.emit(e_res->place +" = phi i32 [" + e_true->place +", %" + phi_true_label + "] , [" + e_false->place +  " , %" + phi_false_label+"]");
+    e_res->start_label_tri = end_label;
+    e_res->start_label = middle_label;
+    e_res->start_list = middle_jmp->next_list;
+    e_res->is_tri = true;
+}
+

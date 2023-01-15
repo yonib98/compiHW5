@@ -18,6 +18,7 @@ public:
     void gen_if(TypeNode* e, std::string true_label);
     void gen_if_bool(TypeNode* e);
     void gen_if_else(TypeNode* e, std::string true_label,  NarkerNode* n,std::string false_label);
+    void gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_bool, TypeNode* e_false, TypeNode* e_res);
     void gen_while(TypeNode* e, std::string true_label, std::string start_while_label);
     void gen_start_while(std::string start_label, NarkerNode* n);
     void gen_continue();

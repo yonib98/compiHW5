@@ -1,3 +1,7 @@
 void main(){
-bool x = true and true; label_8: start_e1
+bool x = false;
+bool y =true;
+int z = 1 if (x and y) else (2 if (y and x) else 3);
+printi(z);
+
 }

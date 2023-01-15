@@ -52,9 +52,11 @@ struct TypeNode: public Expression {
     vector< pair<int, BranchLabelIndex>> false_list;
     std::string start_label;
     std::string end_label;
+    std::string start_label_tri;
+    bool is_tri;
     vector<pair<int, BranchLabelIndex>> start_list;
     vector<pair<int, BranchLabelIndex>> end_list;
-    TypeNode(Type type , bool imExp = false): type(type), next(nullptr), back(nullptr) {
+    TypeNode(Type type , bool imExp = false): type(type), next(nullptr), back(nullptr), is_tri(false) {
         if(imExp) {
             CodeBuffer &cb = CodeBuffer::instance();
             int loc = cb.emit("br label @");
