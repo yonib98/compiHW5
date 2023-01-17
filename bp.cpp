@@ -17,10 +17,21 @@ string CodeBuffer::genLabel(){
 	label << "label_";
 	label << buffer.size();
 	std::string ret(label.str());
-	label << ":";
-	emit(label.str());
+     emit("br label %" + label.str());
+    label << ":";
+    emit(label.str());
 	return ret;
 }
+string CodeBuffer::genLabelPhi(){
+    std::stringstream label;
+    label << "label_";
+    label << buffer.size();
+    std::string ret(label.str());
+    label << ":";
+    emit(label.str());
+    return ret;
+}
+
 string CodeBuffer::freshVar() {
     static int vars = 0;
     return "%t" + to_string(vars++);

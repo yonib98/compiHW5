@@ -24,15 +24,18 @@ public:
     void gen_continue();
     void gen_break();
     void get_exp_id_place(TypeNode* e, int offset);
+    void gen_stack_var(int offset, TypeNode* exp);
     void gen_stack_var(int offset, std::string place);
     void gen_ret(TypeNode* ret_type);
     void gen_ret_with_exp(TypeNode* ret_exp);
     void check_div_by_zero(TypeNode* e);
-    void gen_div_by_zero_msg();
+    void gen_div_by_zero_msg(std::string some_label);
     void fix_normal_exp(TypeNode *e);
-
+    void gen_not_exp(TypeNode *e);
+    void fix_call_sc(TypeNode* e);
+    void gen_func_call_param(TypeNode* e);
     //funcs
     void gen_func(TypeNode* ret_type_n, std::string id, NodeParams* params_n);
-    std::string gen_func_call(Type ret_type, std::string id, FuncCallNode* params, TypeNode* type_node);
+    TypeNode* gen_func_call(Type ret_type, std::string id, FuncCallNode* params);
 
 };

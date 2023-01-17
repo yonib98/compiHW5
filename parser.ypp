@@ -118,10 +118,10 @@ ExpForIf: Exp {table.check_exp_is_bool($1, yylineno); table.push_scope(); $$=$1;
 AfterIf: {table.pop_scope();}
 
  Statement: LBRACE {table.push_scope();} Statements RBRACE {table.pop_scope();}
-            | Type ID SC {table.insert_symbol($1,$2, yylineno);}
+            | Type ID SC {table.insert_symbol($1,$2, yylineno, nullptr);}
 			| Type ID ASSIGN Exp SC {table.insert_and_check_symbol($1,$2,$4, yylineno); fix_normal_exp($4);}
 			| ID ASSIGN Exp SC {table.check_symbol($1, $3, yylineno);fix_normal_exp($3);}
-			| Call SC {table.check_func($1, yylineno);}
+			| Call SC {TypeNode* tmp = table.check_func($1, yylineno); cg.fix_call_sc(tmp);}
 			| RETURN SC {table.check_return(yylineno); CodeBuffer::instance().emit("ret void");}
 			| RETURN Exp SC {table.check_return($2->type, yylineno);cg.gen_ret_with_exp($2); fix_normal_exp($2);}
 			| IF LPAREN ExpForIf RPAREN M Statement AfterIf {cg.gen_if($3, $5->label); fix_normal_exp($3);}
@@ -136,8 +136,8 @@ Call: ID LPAREN ExpList RPAREN {$$ = new FuncCallNode($1, $3);}
       | ID LPAREN RPAREN {$$ = new FuncCallNode($1);}
 
 
-ExpList: Exp {$$ = $1; fix_normal_exp($1);}
-         | Exp COMMA ExpList {$1->next = $3; $3->back = $1; $$ = $1; fix_normal_exp($1);}
+ExpList: Exp {$$ = $1; fix_normal_exp($1);cg.gen_func_call_param($1);}
+         | Exp COMMA { cg.gen_func_call_param($1);} ExpList {$1->next = $4; $4->back = $1; $$ = $1;  fix_normal_exp($1);}
 
 
 Type: INT {$$=new TypeNode(_INT, false);}
@@ -156,7 +156,7 @@ Exp: LPAREN Exp RPAREN {$$ = $2;}
 	 | STRING {$$ = new TypeNode(_STRING, true); cg.gen_string($$, $1->value);}
 	 | TRUE {$$ = new TypeNode(_BOOL, true); cg.gen_bool($$, $1->value);}
 	 | FALSE {$$ = new TypeNode(_BOOL, true); cg.gen_bool($$, $1->value);}
-	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = new TypeNode(_BOOL, true);}
+	 | NOT Exp {table.check_logical_op($2, yylineno); $$ = $2; cg.gen_not_exp($$);}
 	 | Exp AND M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_and($$, $1, $4, $3->label);}
 	 | Exp OR M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_or($$, $1 ,$4, $3->label);}
 	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_relop($$, $1, $3, $2->relop);}

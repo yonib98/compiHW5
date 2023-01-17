@@ -16,6 +16,7 @@ CodeGenerator cg;
 
 //Todo DEBUG REMOVE BEFORE SUBMITTING
 void debug_lli(){
+    return;
     CodeBuffer& cb = CodeBuffer::instance();
     std::string code = cb.getCode();
     std::ofstream file("code.txt");
@@ -24,7 +25,15 @@ void debug_lli(){
     system("./llvm.py code.txt");
 }
 
+void CodeGenerator::fix_call_sc(TypeNode *e) {
+    CodeBuffer& cb = CodeBuffer::instance();
+    if(e->type==_BOOL){
+      std::string dummy_label = cb.genLabel();
+      cb.bpatch(e->true_list, dummy_label);
+      cb.bpatch(e->false_list, dummy_label);
+    }
 
+}
 void fix_start_label(TypeNode* e_res, TypeNode* e1, TypeNode* e2){
     CodeBuffer& cb = CodeBuffer::instance();
     cb.bpatch(e2->start_list, e2->start_label);
@@ -45,6 +54,7 @@ void CodeGenerator::const_strings_definition(){
         cb.emitGlobal(s);
     }
 }
+
 void CodeGenerator::check_div_by_zero(TypeNode *e) {
     CodeBuffer& cb = CodeBuffer::instance();
     std::stringstream code;
@@ -54,20 +64,21 @@ void CodeGenerator::check_div_by_zero(TypeNode *e) {
     code << "br i1 " << reg << ",label @, label @";
     int loc = cb.emit(code.str());
     std::string zero_label = cb.genLabel();
-    gen_div_by_zero_msg();
+    gen_div_by_zero_msg(zero_label);
     std::string not_zero_label= cb.genLabel();
     cb.bpatch(cb.makelist({loc, FIRST}), zero_label);
     cb.bpatch(cb.makelist({loc, SECOND}), not_zero_label);
 }
-void CodeGenerator::gen_div_by_zero_msg() {
+void CodeGenerator::gen_div_by_zero_msg(std::string some_label) {
     CodeBuffer& cb = CodeBuffer::instance();
     std::string reg = cb.freshVar();
     std::stringstream code;
     code << reg << " = " << "getelementptr [23 x i8], [23 x i8]* @.divZeroMsg, i32 0, i32 0" << std::endl;
     code << "call void @print(i8* " << reg << ")" << std::endl;
-    code << "call void @exit(i32 1) " << std::endl;
-    code << "ret i32 0"; //In llvm  each block needs to finish in ret/branch.
+    code << "call void @exit(i32 1)";
     cb.emit(code.str());
+    int loc =  cb.emit("br label @"); //Block needs to end with a br/ret command, we jump to somewhere doesn't really matter where as long as the label exist.
+    cb.bpatch(cb.makelist({loc, FIRST}), some_label);
 
 }
 void CodeGenerator::gen_exp_num(TypeNode* e, std::string value){
@@ -82,6 +93,7 @@ void CodeGenerator::gen_exp_binop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, c
     e_res->place = cb.freshVar();
     std::stringstream code;
     std::string llvm_op;
+    fix_start_label(e_res, e1, e2);
     switch (op){
         case '+':
             llvm_op = "add";
@@ -117,19 +129,19 @@ void CodeGenerator::gen_exp_binop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, c
         casting_code << e_res->place << " = and i32 " << old_var << ", " << mask;
         cb.emit(casting_code.str());
     }
-    fix_start_label(e_res,e1,e2);
 
 
 
 }
 void CodeGenerator::gen_defult_bool(int offset){
     CodeBuffer& cb  = CodeBuffer::instance();
-    std::string tmp_place = cb.freshVar();
+    std::string place = cb.freshVar();
     std::stringstream code;
-    code << tmp_place << " = " << "add i32 0, 0";
+    code << place << " = " << "add i32 0, 0";
     cb.emit(code.str());
-    gen_stack_var(offset, tmp_place);
+    gen_stack_var(offset, place);
 }
+
 void CodeGenerator::gen_bool(TypeNode *e, bool value){
     CodeBuffer& cb  = CodeBuffer::instance();
     if (!value) {
@@ -195,9 +207,9 @@ void CodeGenerator::gen_exp_bool_labels(TypeNode* e, int offset) {
     CodeBuffer& cb  = CodeBuffer::instance();
     std::string true_label = cb.genLabel();
     int next_label_true = cb.emit("br label @");
-    std::string false_label = cb.genLabel();
+    std::string false_label = cb.genLabelPhi();
     int next_label_false = cb.emit("br label @");
-    std::string next_label = cb.genLabel();
+    std::string next_label = cb.genLabelPhi();
 
     std::vector<pair<int,BranchLabelIndex>> next_label_list = CodeBuffer::merge(CodeBuffer::makelist({next_label_true, FIRST}),
                                            CodeBuffer::makelist({next_label_false,FIRST}));
@@ -215,9 +227,31 @@ void CodeGenerator::gen_exp_bool_labels(TypeNode* e, int offset) {
     cb.emit(code.str());
 
 }
-void CodeGenerator::gen_stack_var(int offset, std::string place) {
-    std::string base_addr = base_addr_vec.back();
+void CodeGenerator::gen_stack_var(int offset, std::string place){
     CodeBuffer& cb  = CodeBuffer::instance();
+    std::string base_addr = base_addr_vec.back();
+    std::stringstream code;
+    if (offset<0){
+        //WON'T GO HERE
+        return;
+    }
+    std::string ptr = cb.freshVar();
+    code << ptr << " = " << "getelementptr [50 x i32], [50 x i32]* " << base_addr << ", i32 0, i32 " << offset;
+    code << std::endl << "store i32 " << place << ", i32* " << ptr;
+    cb.emit(code.str());
+}
+void CodeGenerator::gen_stack_var(int offset, TypeNode* exp) {
+    CodeBuffer& cb  = CodeBuffer::instance();
+
+    if (exp->type==_BOOL){
+        gen_exp_bool_labels(exp, offset);
+        return;
+    }if (offset<0){
+        return;
+    }
+    std::string place = exp->place;
+
+    std::string base_addr = base_addr_vec.back();
     std::stringstream code;
     std::string ptr = cb.freshVar();
     code << ptr << " = " << "getelementptr [50 x i32], [50 x i32]* " << base_addr << ", i32 0, i32 " << offset;
@@ -320,7 +354,7 @@ void CodeGenerator::gen_while(TypeNode* e, std::string true_label, std::string s
 void CodeGenerator::gen_continue() {
     CodeBuffer& cb  = CodeBuffer::instance();
     std::stringstream code;
-    code << "br label " << start_labels_while_vec.back();
+    code << "br label %" << start_labels_while_vec.back();
     cb.emit(code.str());
 }
 
@@ -350,55 +384,78 @@ void CodeGenerator::gen_func(TypeNode* ret_type_n, std::string id, NodeParams* p
     code << func_base_addr << " = " << "alloca [50 x i32]";
     cb.emit(code.str());
 }
-std::string CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNode* params, TypeNode* type_node){
-    CodeBuffer& cb  = CodeBuffer::instance();
+TypeNode* CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNode* params) {
+    CodeBuffer &cb = CodeBuffer::instance();
     std::stringstream code;
     std::string real_ret_type = ret_type != _VOID ? "i32" : "void";
-
+    TypeNode* call_node = new TypeNode(ret_type);
+    call_node->is_func_call = true;
     std::string reg = cb.freshVar();
-
     ret_type == _VOID ? code << "call " : code << reg << " = call ";
-
     code << real_ret_type << " @" << id << "(";
-    TypeNode* tmp = params->types;
-    std::string param_type = id == "print" ? "i8*" : "i32";
-    while (tmp!=nullptr){
-        if (tmp->type == _BOOL){
-            std::string true_label = cb.genLabel();
-            int next_label_true = cb.emit("br label @");
-            std::string false_label = cb.genLabel();
-            int next_label_false = cb.emit("br label @");
-            std::string next_label = cb.genLabel();
-
-            std::vector<pair<int,BranchLabelIndex>> next_label_list = CodeBuffer::merge(CodeBuffer::makelist({next_label_true, FIRST}),
-                                                                                        CodeBuffer::makelist({next_label_false,FIRST}));
-
-            cb.bpatch(tmp->true_list, true_label);
-            cb.bpatch(tmp->false_list, false_label);
-            cb.bpatch(next_label_list, next_label);
-            std::string reg = cb.freshVar();
-            cb.emit(reg +" = phi i32 [1" +", %" + true_label + "] , [0" + " , %" + false_label+"]");
-            tmp->place = reg;
-        }
-        code << param_type << " " << tmp->place;
-        tmp=tmp->next;
-        if(tmp!=nullptr){
-            code << ", ";
-        }
+    TypeNode *tmp = params->types;
+    call_node->place = reg;
+    if(tmp==nullptr){
+        int x = cb.emit("br label @");
+        std::string call_label = cb.genLabel();
+        cb.bpatch(cb.makelist({x, FIRST}), call_label);
+        call_node->start_label = call_label;
     }
+    std::string param_type = id == "print" ? "i8*" : "i32";
+    while (tmp != nullptr) {
+    code << param_type << " " << tmp->place;
+    tmp = tmp->next;
+    if (tmp != nullptr) {
+        code << ", ";
+    }
+
+}
     code << ")" << std::endl;
 
     cb.emit(code.str());
-    if(type_node != nullptr){
-        cb.bpatch(type_node->start_list, type_node->start_label);
+    if(params->types != nullptr){
+        call_node->start_label = params->types->start_label;
     }
 
-    return reg;
+    if(call_node != nullptr) {
+        cb.bpatch(call_node->start_list, call_node->start_label);
+        if (ret_type == _BOOL) {
+            std::stringstream trunc_code;
+            std::string cond_reg = cb.freshVar();
+            trunc_code << cond_reg << " = trunc i32 " << reg << " to i1";
+            cb.emit(trunc_code.str());
+            int loc = cb.emit("br i1 " + cond_reg + ", label @, label @");
+            call_node->true_list = cb.makelist({loc, FIRST});
+            call_node->false_list = cb.makelist({loc, SECOND});
+            call_node->place = reg;
+        }
+    }
+    return call_node;
 }
 void CodeGenerator::gen_ret_with_exp(TypeNode* ret_exp){
     CodeBuffer& cb = CodeBuffer::instance();
     std::string ret = ret_exp->type != _VOID ? "i32" : "void";
     std::stringstream  code;
+    if(ret_exp->type==_BOOL){
+        //APART OF GEN_BOOL_LABELS
+        std::string base_addr = base_addr_vec.back();
+        CodeBuffer& cb  = CodeBuffer::instance();
+        std::string true_label = cb.genLabel();
+        int next_label_true = cb.emit("br label @");
+        std::string false_label = cb.genLabelPhi();
+        int next_label_false = cb.emit("br label @");
+        std::string next_label = cb.genLabelPhi();
+
+        std::vector<pair<int,BranchLabelIndex>> next_label_list = CodeBuffer::merge(CodeBuffer::makelist({next_label_true, FIRST}),
+                                                                                    CodeBuffer::makelist({next_label_false,FIRST}));
+
+        cb.bpatch(ret_exp->true_list, true_label);
+        cb.bpatch(ret_exp->false_list, false_label);
+        cb.bpatch(next_label_list, next_label);
+        std::string reg = cb.freshVar();
+        cb.emit(reg +" = phi i32 [1" +", %" + true_label + "] , [0" + " , %" + false_label+"]");
+        ret_exp->place = reg;
+    }
     code << "ret " << ret << " " << ret_exp->place;
     cb.emit(code.str());
 
@@ -436,7 +493,7 @@ void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_
     std::string middle_label = cb.genLabel();
 
     NarkerNode* jmp_to_bool_exp = new NarkerNode();
-    std::string end_label = cb.genLabel();
+    std::string end_label = cb.genLabelPhi();
 
     cb.bpatch(e_true->start_list, to_start_label);
     cb.bpatch(e_false->start_list, e_false->start_label);
@@ -456,4 +513,27 @@ void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_
     e_res->start_list = middle_jmp->next_list;
     e_res->is_tri = true;
 }
+void CodeGenerator::gen_not_exp(TypeNode *e){
+    vector<pair<int, BranchLabelIndex>> tmp = e->true_list;
+    e->true_list = e->false_list;
+    e->false_list = tmp;
+}
+void CodeGenerator::gen_func_call_param(TypeNode* e){
+    CodeBuffer& cb = CodeBuffer::instance();
+    if (e->type==_BOOL){
+        std::string true_label = cb.genLabel();
+        int loc1 = cb.emit("br label @");
+        std::string false_label = cb.genLabel();
+        int loc2 = cb.emit("br label @");
+        std::string phi_label = cb.genLabelPhi();
+        cb.bpatch(e->true_list, true_label);
+        cb.bpatch(e->false_list, false_label);
+        cb.bpatch(cb.makelist({loc1, FIRST}), phi_label);
+        cb.bpatch(cb.makelist({loc2, FIRST}), phi_label);
 
+        std::string reg = cb.freshVar();
+        e->place = reg;
+        cb.emit(reg + " = phi i32 [1" + ", %" + true_label + "] , [0" + " , %" + false_label + "]");
+
+    }
+}

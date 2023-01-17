@@ -54,6 +54,7 @@ struct TypeNode: public Expression {
     std::string end_label;
     std::string start_label_tri;
     bool is_tri;
+    bool is_func_call;
     vector<pair<int, BranchLabelIndex>> start_list;
     vector<pair<int, BranchLabelIndex>> end_list;
     TypeNode(Type type , bool imExp = false): type(type), next(nullptr), back(nullptr), is_tri(false) {
@@ -125,11 +126,11 @@ struct SymTable{
     void push_scope();
     Scope& top_scope();
     void pop_scope();
-    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place="0",bool call_from_insert_and_check = false);
+    void insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, TypeNode* e,bool call_from_insert_and_check = false);
     void check_symbol(IdNode* id_n, TypeNode* type_n, int lineno);
     void insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode* exp_n, int lineno);
     void create_func(TypeNode* return_type, IdNode* id, NodeParams* params,  int lineno);
-    std::string check_func(FuncCallNode* call_n, int line_no, TypeNode* return_type = nullptr);
+    TypeNode* check_func(FuncCallNode* call_n, int line_no, TypeNode* return_type = nullptr);
     void check_return(int line_no);
     void check_return(Type type, int line_no);
     void check_exp_is_bool(TypeNode* type_n, int line_no);

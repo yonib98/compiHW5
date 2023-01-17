@@ -139,14 +139,22 @@ void SymTable::check_symbol(IdNode* id_n, TypeNode* type_n, int lineno) {
         output::errorMismatch(lineno);
         exit(0);
     }
-    cg.gen_stack_var( sym_record->offset, type_n->place);
+    std::string place =type_n->place;
+    int offset = sym_record->offset;
+    if (type_n->type==_BOOL){
+            cg.gen_exp_bool_labels(type_n, offset);
+    }
+    else{
+        cg.gen_stack_var(offset, place);
+    }
 
 }
-void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::string place, bool call_from_insert_and_check) {
+void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, TypeNode* e, bool call_from_insert_and_check) {
     if(get_record(id_n)!=nullptr){
         output::errorDef(lineno, id_n->id);
         exit(0);
     }
+    std::string place = e==nullptr? "0":e->place;
     int offset = offsets.back();
     offsets.pop_back();
     offsets.push_back(offset+1);
@@ -155,9 +163,10 @@ void SymTable::insert_symbol(TypeNode* type_n, IdNode* id_n, int lineno, std::st
         if(!call_from_insert_and_check){
             cg.gen_defult_bool(offset);
         }else{
-            cg.gen_exp_bool_labels(type_n, offset);
+                cg.gen_exp_bool_labels(type_n, offset);
+            }
         }
-    }else{
+    else{
         cg.gen_stack_var(offset, place);
     }
 
@@ -168,7 +177,7 @@ void SymTable::insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode*
         output::errorMismatch(lineno);
         exit(0);
     }
-    insert_symbol(exp_n, id_n, lineno, exp_n->place, true);
+    insert_symbol(exp_n, id_n, lineno, exp_n, true);
 
 }
 void SymTable::create_func(TypeNode* ret_type_n, IdNode* id_n, NodeParams* params_n, int lineno) {
@@ -189,7 +198,7 @@ void SymTable::create_func(TypeNode* ret_type_n, IdNode* id_n, NodeParams* param
 
 
 
-std::string SymTable::check_func(FuncCallNode* call_n, int lineno, TypeNode* return_type){
+TypeNode* SymTable::check_func(FuncCallNode* call_n, int lineno, TypeNode* return_type){
     Scope::Record* func_record = get_record(call_n->id->id);
     if(func_record == nullptr || func_record->is_func==false){
         output::errorUndefFunc(lineno, call_n->id->id);
@@ -200,7 +209,7 @@ std::string SymTable::check_func(FuncCallNode* call_n, int lineno, TypeNode* ret
     vector<string> after_hamara = hamara(func_record->params_head);
 
     if( tmp_type_node == nullptr && tmp_param_node == nullptr){
-        return cg.gen_func_call(func_record->type, func_record->id , call_n, return_type);
+        return cg.gen_func_call(func_record->type, func_record->id , call_n);
     }
     if( tmp_type_node == nullptr || tmp_param_node == nullptr){
         output::errorPrototypeMismatch(lineno, call_n->id->id, after_hamara);
@@ -219,7 +228,7 @@ std::string SymTable::check_func(FuncCallNode* call_n, int lineno, TypeNode* ret
         exit(0);
     }
 
-    return cg.gen_func_call(func_record->type, func_record->id , call_n, return_type);
+    return cg.gen_func_call(func_record->type, func_record->id , call_n);
 }
 void SymTable::check_return(int line_no){
     if (table.current_func->type != _VOID){
@@ -322,7 +331,7 @@ TypeNode* SymTable::find_type_from_mul_div(TypeNode* type_n1, TypeNode* type_n2,
         exit(0);
     }
     Type res = check_types(type_n1->type, type_n2->type);
-    return new TypeNode(res, true);
+    return new TypeNode(res, false);
 }
 TypeNode* SymTable::find_type_from_id(IdNode* id_n, int line_no){
     Scope::Record* record = get_record(id_n->id);
@@ -343,12 +352,8 @@ TypeNode* SymTable::find_type_from_call_func(FuncCallNode* call_n, int line_no){
         output::errorUndefFunc(line_no, call_n->id->id);
         exit(0);
     }
-    TypeNode* tmp = new TypeNode(func_record->type, true);
-    std::string place = check_func(call_n, line_no , tmp);
-    if(func_record->type != _VOID){
-        tmp->place = place;
-    }
-    return tmp;
+    TypeNode* call_node = check_func(call_n, line_no);
+    return call_node;
 }
 
 

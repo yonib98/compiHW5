@@ -5,11 +5,11 @@
 using namespace std;
 
 void output::endScope(){
-    cout << "---end scope---" << endl;
+   // cout << "---end scope---" << endl;
 }
 
 void output::printID(const string& id, int offset, const string& type) {
-    cout << id << " " << type <<  " " << offset <<  endl;
+    // cout << id << " " << type <<  " " << offset <<  endl;
 }
 
 string typeListToString(const std::vector<string>& argTypes) {
@@ -51,7 +51,7 @@ void output::errorSyn(int lineno){
 }
 
 void output::errorUndef(int lineno, const string& id){
-    cout << "line " << lineno << ":" << " variable " << id << " is not defined" << endl;
+   cout << "line " << lineno << ":" << " variable " << id << " is not defined" << endl;
 }
 
 void output::errorDef(int lineno, const string& id){
@@ -67,7 +67,7 @@ void output::errorMismatch(int lineno){
 }
 
 void output::errorPrototypeMismatch(int lineno, const string& id, std::vector<string>& argTypes) {
-    cout << "line " << lineno << ": prototype mismatch, function " << id << " expects arguments " << typeListToString(argTypes) << endl;
+       cout << "line " << lineno << ": prototype mismatch, function " << id << " expects arguments " << typeListToString(argTypes) << endl;
 }
 
 void output::errorUnexpectedBreak(int lineno) {
@@ -75,7 +75,7 @@ void output::errorUnexpectedBreak(int lineno) {
 }
 
 void output::errorUnexpectedContinue(int lineno) {
-    cout << "line " << lineno << ":" << " unexpected continue statement" << endl;	
+    cout << "line " << lineno << ":" << " unexpected continue statement" << endl;
 }
 
 void output::errorMainMissing() {

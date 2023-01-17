@@ -1,7 +1,3 @@
 void main(){
-bool x = false;
-bool y =true;
-int z = 1 if (x and y) else (2 if (y and x) else 3);
-printi(z);
-
+printi(3 if(false) else (4 if (false) else 6));
 }
