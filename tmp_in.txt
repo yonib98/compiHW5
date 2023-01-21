@@ -1,3 +1,6 @@
-void main(){
-printi(3 if(false) else (4 if (false) else 6));
-}
+void main()
+{
+    print("Checking ternary order of operations");
+    int x = 0 if (7>8) else 1 if (10>9) else 2 if (6!=6) else 3 if (6==6) else 4;
+    printi(x);
+    }

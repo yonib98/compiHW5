@@ -55,6 +55,7 @@
 %token <stringNode> STRING
 
 %nonassoc IF
+%right TRI
 
 %left ASSIGN
 
@@ -132,12 +133,12 @@ AfterIf: {table.pop_scope();}
 			| BREAK SC {table.check_break(yylineno); cg.gen_break();} //Inside while
 			| CONTINUE SC {table.check_continue(yylineno); cg.gen_continue();} //Inside while
 
-Call: ID LPAREN ExpList RPAREN {$$ = new FuncCallNode($1, $3);}
+Call: ID LPAREN ExpList {cg.connect_explist($3);} RPAREN {$$ = new FuncCallNode($1, $3);}
       | ID LPAREN RPAREN {$$ = new FuncCallNode($1);}
 
 
-ExpList: Exp {$$ = $1; fix_normal_exp($1);cg.gen_func_call_param($1);}
-         | Exp COMMA { cg.gen_func_call_param($1);} ExpList {$1->next = $4; $4->back = $1; $$ = $1;  fix_normal_exp($1);}
+ExpList: Exp {$$ = $1; cg.gen_func_call_param($1);}
+         | Exp COMMA { cg.gen_func_call_param($1);} ExpList {$1->next = $4; $4->back = $1; $$ = $1;  }
 
 
 Type: INT {$$=new TypeNode(_INT, false);}
@@ -146,7 +147,7 @@ Type: INT {$$=new TypeNode(_INT, false);}
 
 
 Exp: LPAREN Exp RPAREN {$$ = $2;}
-	 | Exp IF N LPAREN Exp RPAREN ELSE Exp {$$ = table.find_type_from_tri($1,$5,$8, yylineno); cg.gen_tri($1, $3, $5, $8, $$);} %prec IF
+	 | Exp IF {if($1->type==_BOOL) {cg.gen_bool_for_tri($1);}} N  LPAREN Exp RPAREN ELSE Exp {$$ = table.find_type_from_tri($1,$6,$9, yylineno); cg.gen_tri($1, $4, $6, $9, $$);} %prec TRI
      | Exp ADD_MIN Exp {$$ = table.find_type_from_add_min($1, $3, yylineno); cg.gen_exp_binop($$, $1, $3, $2->op); }
      | Exp MUL_DIV Exp {$$ = table.find_type_from_mul_div($1, $3, yylineno);cg.gen_exp_binop($$, $1, $3, $2->op);}
 	 | ID {$$ = table.find_type_from_id($1, yylineno);}
@@ -160,7 +161,7 @@ Exp: LPAREN Exp RPAREN {$$ = $2;}
 	 | Exp AND M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_and($$, $1, $4, $3->label);}
 	 | Exp OR M Exp {table.check_logical_op($1, $4, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_or($$, $1 ,$4, $3->label);}
 	 | Exp RELOP Exp {table.check_relop($1, $3, yylineno); $$ = new TypeNode(_BOOL); cg.gen_exp_relop($$, $1, $3, $2->relop);}
-	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type, true);}
+	 | LPAREN Type RPAREN Exp {table.check_casting($2, $4, yylineno); $$ = new TypeNode($2->type); cg.gen_cast($4, $$);}
 
 M: /*epsilon*/ {$$ = new MarkerNode();}
 N: /*epsilon*/ {$$ = new NarkerNode();}

@@ -32,6 +32,7 @@ void CodeGenerator::fix_call_sc(TypeNode *e) {
       cb.bpatch(e->true_list, dummy_label);
       cb.bpatch(e->false_list, dummy_label);
     }
+    cb.bpatch(e->start_list, e->start_label);
 
 }
 void fix_start_label(TypeNode* e_res, TypeNode* e1, TypeNode* e2){
@@ -39,6 +40,7 @@ void fix_start_label(TypeNode* e_res, TypeNode* e1, TypeNode* e2){
     cb.bpatch(e2->start_list, e2->start_label);
     e_res->start_label = e1->start_label;
     e_res->start_list = e1->start_list;
+    e_res->end_label = e2->start_label;
 }
 void fix_normal_exp(TypeNode* e){
     CodeBuffer& cb = CodeBuffer::instance();
@@ -117,7 +119,9 @@ void CodeGenerator::gen_exp_binop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, c
             std::cout << "ERROR IN LLVM_OP" << std::endl; //REMOVE BEFORE SUBMITTING.
             exit(0);
     }
-
+    int loc = cb.emit("br label @");
+    e_res->end_label = cb.genLabel();
+    cb.bpatch(cb.makelist({loc, FIRST}), e_res->end_label);
     code << e_res->place << " = " << llvm_op << " i32 " << e1->place << ", " << e2->place;
     cb.emit(code.str());
     if (e_res->type==_BYTE){
@@ -175,7 +179,6 @@ void CodeGenerator::gen_exp_or(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std:
 void CodeGenerator::gen_exp_relop(TypeNode* e_res, TypeNode* e1, TypeNode* e2, std::string relop){
     CodeBuffer& cb  = CodeBuffer::instance();
     std::stringstream code;
-    assert((e1->type == _INT || e1->type==_BYTE) && (e2->type == _INT || e2->type == _BYTE));
     std::unordered_map<std::string, std::string> llvm_relop_map = {
             {"<:SIGNED", "slt"},
             {"<:UNSIGNED", "ult"},
@@ -247,6 +250,9 @@ void CodeGenerator::gen_stack_var(int offset, TypeNode* exp) {
         gen_exp_bool_labels(exp, offset);
         return;
     }if (offset<0){
+       int loc = cb.emit("br label @");
+        exp->start_label = cb.genLabel();
+        cb.bpatch(cb.makelist({loc, FIRST}), exp->start_label);
         return;
     }
     std::string place = exp->place;
@@ -254,6 +260,9 @@ void CodeGenerator::gen_stack_var(int offset, TypeNode* exp) {
     std::string base_addr = base_addr_vec.back();
     std::stringstream code;
     std::string ptr = cb.freshVar();
+    //   int loc = cb.emit("br label @");
+   // exp->start_label = cb.genLabel();
+   // cb.bpatch(cb.makelist({loc, FIRST}), exp->start_label);
     code << ptr << " = " << "getelementptr [50 x i32], [50 x i32]* " << base_addr << ", i32 0, i32 " << offset;
     code << std::endl << "store i32 " << place << ", i32* " << ptr;
     cb.emit(code.str());
@@ -276,14 +285,13 @@ void CodeGenerator::get_exp_id_place(TypeNode* e, int offset){
         //fix_start_and_end_labels(e);
     }else{
         e->place = "%" + std::to_string((-offset) - 1);
+        int loc = cb.emit("br label @");
+
+        e->start_label = cb.genLabel();
+        e->start_list = cb.makelist({loc, FIRST});
     }
     //If Bool we need to gen_bool branches..
     if (e->type == _BOOL){
-        if (offset<0){
-            int loc = cb.emit("br label @");
-            e->start_label = cb.genLabel();
-            e->start_list = cb.makelist({loc, FIRST});
-        }
         std::string cond_reg = cb.freshVar();
         std::stringstream trunc_code;
         // Convert to i1
@@ -400,10 +408,13 @@ TypeNode* CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNo
         std::string call_label = cb.genLabel();
         cb.bpatch(cb.makelist({x, FIRST}), call_label);
         call_node->start_label = call_label;
+        call_node->end_label = call_label;
     }
+    TypeNode* last_exp;
     std::string param_type = id == "print" ? "i8*" : "i32";
     while (tmp != nullptr) {
     code << param_type << " " << tmp->place;
+    last_exp = tmp;
     tmp = tmp->next;
     if (tmp != nullptr) {
         code << ", ";
@@ -415,10 +426,12 @@ TypeNode* CodeGenerator::gen_func_call(Type ret_type, std::string id, FuncCallNo
     cb.emit(code.str());
     if(params->types != nullptr){
         call_node->start_label = params->types->start_label;
+        call_node->start_list = params->types->start_list;
+        call_node->end_label = last_exp->start_label;
     }
 
     if(call_node != nullptr) {
-        cb.bpatch(call_node->start_list, call_node->start_label);
+    // cb.bpatch(call_node->start_list, call_node->start_label);
         if (ret_type == _BOOL) {
             std::stringstream trunc_code;
             std::string cond_reg = cb.freshVar();
@@ -458,7 +471,6 @@ void CodeGenerator::gen_ret_with_exp(TypeNode* ret_exp){
     }
     code << "ret " << ret << " " << ret_exp->place;
     cb.emit(code.str());
-
 }
 
 void CodeGenerator::gen_ret(TypeNode* ret_type){
@@ -485,6 +497,9 @@ void CodeGenerator::gen_string(TypeNode* e, std::string value){
     //fix_start_label(e);
 }
 void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_bool, TypeNode* e_false, TypeNode* e_res){
+    if(e_false->type==_BOOL){
+        cg.gen_bool_for_tri(e_false);
+    }
     CodeBuffer& cb = CodeBuffer::instance();
     NarkerNode* jmp_to_end_label = new NarkerNode();
     std::string to_start_label = cb.genLabel();
@@ -494,7 +509,9 @@ void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_
 
     NarkerNode* jmp_to_bool_exp = new NarkerNode();
     std::string end_label = cb.genLabelPhi();
+    if(e_true->type==_BOOL){
 
+    }
     cb.bpatch(e_true->start_list, to_start_label);
     cb.bpatch(e_false->start_list, e_false->start_label);
     cb.bpatch(e_bool->true_list, e_true->start_label);
@@ -505,9 +522,10 @@ void CodeGenerator::gen_tri(TypeNode *e_true, NarkerNode* after_e1, TypeNode* e_
     cb.bpatch(jmp_to_bool_exp->next_list, e_bool->start_label);
     e_res->place = cb.freshVar();
     cb.bpatch(e_true->start_list, to_start_label);
-    std::string phi_true_label = e_true->is_tri ? e_true->start_label_tri: e_true->start_label;
-    std::string phi_false_label = e_false->is_tri ? e_false->start_label_tri: e_false->start_label;
-    cb.emit(e_res->place +" = phi i32 [" + e_true->place +", %" + phi_true_label + "] , [" + e_false->place +  " , %" + phi_false_label+"]");
+    std::string phi_true_label = e_true->is_tri ? e_true->start_label_tri: e_true->end_label!=""? e_true->end_label:e_true->start_label;
+    std::string phi_false_label = e_false->is_tri ? e_false->start_label_tri: e_false->end_label!=""? e_false->end_label:e_false->start_label;
+    std::string type = e_res->type==_STRING? "i8*":"i32";
+    cb.emit(e_res->place +" = phi " + type + " [" +e_true->place +", %" + phi_true_label + "] , [" + e_false->place +  " , %" + phi_false_label+"]");
     e_res->start_label_tri = end_label;
     e_res->start_label = middle_label;
     e_res->start_list = middle_jmp->next_list;
@@ -536,4 +554,49 @@ void CodeGenerator::gen_func_call_param(TypeNode* e){
         cb.emit(reg + " = phi i32 [1" + ", %" + true_label + "] , [0" + " , %" + false_label + "]");
 
     }
+   // cb.bpatch(e->start_list,e->start_label);
+}
+void CodeGenerator::connect_explist(TypeNode *e_list) {
+    TypeNode* s = e_list->next;//atleast one parameter;
+    //One paramter still needs to be Backpatched./
+    while(s!=nullptr){
+        fix_normal_exp(s);
+        s=s->next;
+    }
+}
+void CodeGenerator::gen_cast(TypeNode* old_e, TypeNode *new_e){
+    CodeBuffer& cb = CodeBuffer::instance();
+    new_e->start_list = old_e->start_list;
+    new_e->true_list = old_e->true_list;
+    new_e->false_list = old_e->false_list;
+    int loc = cb.emit("br label @");
+    new_e->end_label = cb.genLabel();
+    new_e->start_label = old_e->start_label;
+    cb.bpatch(cb.makelist({loc, FIRST}), new_e->end_label);
+    if (old_e->type==_INT && new_e->type==_BYTE){
+        std::string old_var = old_e->place;
+        new_e->place = cb.freshVar();
+        unsigned int mask = 0xff; // get only 8 bits
+        std::stringstream casting_code;
+        casting_code << new_e->place << " = and i32 " << old_var << ", " << mask;
+        cb.emit(casting_code.str());
+    }else{
+        new_e->place = old_e->place;
+    }
+}
+void CodeGenerator::gen_bool_for_tri(TypeNode* e){
+    CodeBuffer& cb = CodeBuffer::instance();
+    std::string true_label = cb.genLabel();
+    int loc1 = cb.emit("br label @");
+    std::string false_label = cb.genLabel();
+    int loc2 = cb.emit("br label @");
+    std::string phi_label = cb.genLabelPhi();
+    cb.bpatch(e->true_list, true_label);
+    cb.bpatch(e->false_list, false_label);
+    cb.bpatch(cb.makelist({loc1, FIRST}), phi_label);
+    cb.bpatch(cb.makelist({loc2, FIRST}), phi_label);
+    std::string reg = cb.freshVar();
+    e->place = reg;
+    cb.emit(reg + " = phi i32 [1" + ", %" + true_label + "] , [0" + " , %" + false_label + "]");
+    e->end_label=phi_label;
 }

@@ -40,6 +40,7 @@ string hamara(Type type){
         case _VOID:
             return "VOID";
     }
+    return "";
 }
 
 vector<std::string> hamara(NodeParams* param_node){
@@ -177,6 +178,9 @@ void SymTable::insert_and_check_symbol(TypeNode* type_n, IdNode* id_n, TypeNode*
         output::errorMismatch(lineno);
         exit(0);
     }
+    if (type_n->type==_INT && exp_n->type ==_BYTE){
+        exp_n->type=_INT;
+    }
     insert_symbol(exp_n, id_n, lineno, exp_n, true);
 
 }
@@ -274,8 +278,8 @@ void SymTable::check_relop(TypeNode* type_n1, TypeNode* type_n2, int line_no ){
     }
 }
 
-void SymTable::check_casting(TypeNode* type_n1, TypeNode* type_n2, int line_no){
-    if (check_types(type_n1->type, type_n2->type)== _VOID){
+void SymTable::check_casting(TypeNode* new_type, TypeNode* type_n2, int line_no){
+    if (check_types(new_type->type, type_n2->type)== _VOID){
         output::errorMismatch(line_no);
         exit(0);
     }
@@ -401,3 +405,4 @@ void end_program(int yychar, int yyeof, int line_no) {
     cb.printCodeBuffer();
     debug_lli();
 }
+
